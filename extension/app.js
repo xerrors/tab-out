@@ -43,7 +43,9 @@ async function fetchOpenTabs() {
       id:       t.id,
       url:      t.url,
       title:    t.title,
+      favIconUrl: t.favIconUrl || '',
       windowId: t.windowId,
+      groupId:  typeof t.groupId === 'number' ? t.groupId : -1,
       active:   t.active,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
       isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
@@ -106,6 +108,19 @@ async function closeTabsExact(urls) {
   const allTabs = await chrome.tabs.query({});
   const toClose = allTabs.filter(t => urlSet.has(t.url)).map(t => t.id);
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
+  await fetchOpenTabs();
+}
+
+/**
+ * closeTabsByIds(tabIds)
+ *
+ * Closes the exact tabs identified by ID. Used for browser-native tab groups
+ * because those may contain mixed domains and should never over-close.
+ */
+async function closeTabsByIds(tabIds) {
+  if (!tabIds || tabIds.length === 0) return;
+  const uniqueIds = [...new Set(tabIds)].filter(id => typeof id === 'number');
+  if (uniqueIds.length > 0) await chrome.tabs.remove(uniqueIds);
   await fetchOpenTabs();
 }
 
@@ -231,6 +246,7 @@ async function saveTabForLater(tab) {
     id:        Date.now().toString(),
     url:       tab.url,
     title:     tab.title,
+    favIconUrl: tab.favIconUrl || '',
     savedAt:   new Date().toISOString(),
     completed: false,
     dismissed: false,
@@ -708,6 +724,55 @@ const ICONS = {
    ---------------------------------------------------------------- */
 let domainGroups = [];
 
+function makeGroupDomId(group) {
+  if (group.kind === 'browser') return `browser-group-${group.groupId}`;
+  return 'domain-' + group.domain.replace(/[^a-z0-9]/g, '-');
+}
+
+function getGroupTitle(group) {
+  if (group.kind === 'browser') return group.title;
+  if (group.kind === 'landing') return 'Homepages';
+  return group.label || friendlyDomain(group.domain);
+}
+
+function getGroupCountLabel(groups) {
+  return `${groups.length} group${groups.length !== 1 ? 's' : ''}`;
+}
+
+function getBrowserGroupFallbackTitle(color = 'grey') {
+  const normalized = color.charAt(0).toUpperCase() + color.slice(1);
+  return `${normalized} group`;
+}
+
+function getTabFaviconUrl(tab) {
+  if (tab?.favIconUrl) return tab.favIconUrl;
+
+  let domain = '';
+  try { domain = new URL(tab?.url || '').hostname; } catch {}
+  return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+}
+
+async function fetchTabGroupMetaMap(tabs) {
+  const groupIds = [...new Set(
+    tabs
+      .map(tab => tab.groupId)
+      .filter(groupId => typeof groupId === 'number' && groupId >= 0)
+  )];
+
+  if (groupIds.length === 0 || !chrome.tabGroups?.get) return new Map();
+
+  const entries = await Promise.all(groupIds.map(async groupId => {
+    try {
+      const group = await chrome.tabGroups.get(groupId);
+      return [groupId, group];
+    } catch {
+      return [groupId, null];
+    }
+  }));
+
+  return new Map(entries);
+}
+
 
 /* ----------------------------------------------------------------
    HELPER: filter out browser-internal pages
@@ -765,9 +830,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = getTabFaviconUrl(tab);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
@@ -803,8 +866,8 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
 function renderDomainCard(group) {
   const tabs      = group.tabs || [];
   const tabCount  = tabs.length;
-  const isLanding = group.domain === '__landing-pages__';
-  const stableId  = 'domain-' + group.domain.replace(/[^a-z0-9]/g, '-');
+  const stableId  = makeGroupDomId(group);
+  const groupTitle = getGroupTitle(group);
 
   // Count duplicates (exact URL match)
   const urlCounts = {};
@@ -835,7 +898,8 @@ function renderDomainCard(group) {
   const extraCount  = uniqueTabs.length - visibleTabs.length;
 
   const pageChips = visibleTabs.map(tab => {
-    let label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), group.domain);
+    const hostnameForCleaning = group.kind === 'domain' ? group.domain : '';
+    let label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), hostnameForCleaning);
     // For localhost tabs, prepend port number so you can tell projects apart
     try {
       const parsed = new URL(tab.url);
@@ -846,9 +910,7 @@ function renderDomainCard(group) {
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const faviconUrl = getTabFaviconUrl(tab);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
@@ -882,7 +944,7 @@ function renderDomainCard(group) {
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
+          <span class="mission-name">${groupTitle}</span>
           ${tabBadge}
           ${dupeBadge}
         </div>
@@ -966,7 +1028,7 @@ async function renderDeferredColumn() {
 function renderDeferredItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+  const faviconUrl = getTabFaviconUrl(item);
   const ago = timeAgo(item.savedAt);
 
   return `
@@ -1029,6 +1091,7 @@ async function renderStaticDashboard() {
   // --- Fetch tabs ---
   await fetchOpenTabs();
   const realTabs = getRealTabs();
+  const tabGroupMeta = await fetchTabGroupMetaMap(realTabs);
 
   // --- Group tabs by domain ---
   // Landing pages (Gmail inbox, Twitter home, etc.) get their own special group
@@ -1064,6 +1127,7 @@ async function renderStaticDashboard() {
   }
 
   domainGroups = [];
+  const browserGroupMap = {};
   const groupMap    = {};
   const landingTabs = [];
 
@@ -1089,6 +1153,21 @@ async function renderStaticDashboard() {
 
   for (const tab of realTabs) {
     try {
+      if (typeof tab.groupId === 'number' && tab.groupId >= 0) {
+        const meta = tabGroupMeta.get(tab.groupId) || {};
+        if (!browserGroupMap[tab.groupId]) {
+          browserGroupMap[tab.groupId] = {
+            kind: 'browser',
+            groupId: tab.groupId,
+            title: meta?.title || getBrowserGroupFallbackTitle(meta?.color || 'grey'),
+            color: meta?.color || 'grey',
+            tabs: [],
+          };
+        }
+        browserGroupMap[tab.groupId].tabs.push(tab);
+        continue;
+      }
+
       if (isLandingPage(tab.url)) {
         landingTabs.push(tab);
         continue;
@@ -1098,7 +1177,7 @@ async function renderStaticDashboard() {
       const customRule = matchCustomGroup(tab.url);
       if (customRule) {
         const key = customRule.groupKey;
-        if (!groupMap[key]) groupMap[key] = { domain: key, label: customRule.groupLabel, tabs: [] };
+        if (!groupMap[key]) groupMap[key] = { kind: 'custom', domain: key, label: customRule.groupLabel, tabs: [] };
         groupMap[key].tabs.push(tab);
         continue;
       }
@@ -1111,7 +1190,7 @@ async function renderStaticDashboard() {
       }
       if (!hostname) continue;
 
-      if (!groupMap[hostname]) groupMap[hostname] = { domain: hostname, tabs: [] };
+      if (!groupMap[hostname]) groupMap[hostname] = { kind: 'domain', domain: hostname, tabs: [] };
       groupMap[hostname].tabs.push(tab);
     } catch {
       // Skip malformed URLs
@@ -1119,7 +1198,7 @@ async function renderStaticDashboard() {
   }
 
   if (landingTabs.length > 0) {
-    groupMap['__landing-pages__'] = { domain: '__landing-pages__', tabs: landingTabs };
+    groupMap['__landing-pages__'] = { kind: 'landing', domain: '__landing-pages__', tabs: landingTabs };
   }
 
   // Sort: landing pages first, then domains from landing page sites, then by tab count
@@ -1130,7 +1209,12 @@ async function renderStaticDashboard() {
     if (landingHostnames.has(domain)) return true;
     return landingSuffixes.some(s => domain.endsWith(s));
   }
-  domainGroups = Object.values(groupMap).sort((a, b) => {
+  const sortedBrowserGroups = Object.values(browserGroupMap).sort((a, b) => {
+    if (b.tabs.length !== a.tabs.length) return b.tabs.length - a.tabs.length;
+    return a.title.localeCompare(b.title);
+  });
+
+  const sortedDomainGroups = Object.values(groupMap).sort((a, b) => {
     const aIsLanding = a.domain === '__landing-pages__';
     const bIsLanding = b.domain === '__landing-pages__';
     if (aIsLanding !== bIsLanding) return aIsLanding ? -1 : 1;
@@ -1141,6 +1225,7 @@ async function renderStaticDashboard() {
 
     return b.tabs.length - a.tabs.length;
   });
+  domainGroups = [...sortedBrowserGroups, ...sortedDomainGroups];
 
   // --- Render domain cards ---
   const openTabsSection      = document.getElementById('openTabsSection');
@@ -1150,7 +1235,7 @@ async function renderStaticDashboard() {
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    openTabsSectionCount.innerHTML = `${getGroupCountLabel(domainGroups)} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
@@ -1270,10 +1355,11 @@ document.addEventListener('click', async (e) => {
     const tabUrl   = actionEl.dataset.tabUrl;
     const tabTitle = actionEl.dataset.tabTitle || tabUrl;
     if (!tabUrl) return;
+    const sourceTab = openTabs.find(t => t.url === tabUrl);
 
     // Save to chrome.storage.local
     try {
-      await saveTabForLater({ url: tabUrl, title: tabTitle });
+      await saveTabForLater({ url: tabUrl, title: tabTitle, favIconUrl: sourceTab?.favIconUrl || '' });
     } catch (err) {
       console.error('[tab-out] Failed to save tab:', err);
       showToast('Failed to save tab');
@@ -1344,16 +1430,16 @@ document.addEventListener('click', async (e) => {
   if (action === 'close-domain-tabs') {
     const domainId = actionEl.dataset.domainId;
     const group    = domainGroups.find(g => {
-      return 'domain-' + g.domain.replace(/[^a-z0-9]/g, '-') === domainId;
+      return makeGroupDomId(g) === domainId;
     });
     if (!group) return;
 
-    const urls      = group.tabs.map(t => t.url);
-    // Landing pages and custom groups (whose domain key isn't a real hostname)
-    // must use exact URL matching to avoid closing unrelated tabs
-    const useExact  = group.domain === '__landing-pages__' || !!group.label;
+    const tabIds = group.tabs.map(t => t.id);
+    const urls   = group.tabs.map(t => t.url);
 
-    if (useExact) {
+    if (group.kind === 'browser') {
+      await closeTabsByIds(tabIds);
+    } else if (group.kind === 'landing' || group.kind === 'custom') {
       await closeTabsExact(urls);
     } else {
       await closeTabsByUrls(urls);
@@ -1368,8 +1454,8 @@ document.addEventListener('click', async (e) => {
     const idx = domainGroups.indexOf(group);
     if (idx !== -1) domainGroups.splice(idx, 1);
 
-    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
-    showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
+    const groupLabel = getGroupTitle(group);
+    showToast(`Closed ${tabIds.length} tab${tabIds.length !== 1 ? 's' : ''} from ${groupLabel}`);
 
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
