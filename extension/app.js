@@ -819,7 +819,7 @@ function renderDomainCard(group) {
   </span>`;
 
   const dupeBadge = hasDupes
-    ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">
+    ? `<span class="open-tabs-badge duplicate-badge">
         ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
       </span>`
     : '';

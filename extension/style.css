@@ -5,6 +5,7 @@
    ============================================================ */
 
 :root {
+  color-scheme: light dark;
   --ink: #1a1613;
   --paper: #f8f5f0;
   --warm-gray: #e8e2da;
@@ -18,6 +19,42 @@
   --status-abandoned: #b35a5a;
   --card-bg: #fffdf9;
   --shadow: rgba(26, 22, 19, 0.06);
+  --button-primary-text: #ffffff;
+  --checkbox-checkmark: #ffffff;
+  --page-divider: rgba(154, 145, 138, 0.1);
+  --page-divider-strong: rgba(154, 145, 138, 0.12);
+  --page-divider-soft: rgba(154, 145, 138, 0.08);
+  --control-hover-bg: rgba(154, 145, 138, 0.1);
+  --page-chip-hover-bg: rgba(200, 113, 58, 0.04);
+  --dismiss-hover-bg: rgba(26, 22, 19, 0.06);
+  --toast-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  --update-btn-hover: #4a6952;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f2ece2;
+    --paper: #171412;
+    --warm-gray: #3b342f;
+    --muted: #b1a59b;
+    --accent-amber: #e29a61;
+    --accent-sage: #82a78c;
+    --accent-slate: #88a2b4;
+    --accent-rose: #d38484;
+    --status-active: #8bbb93;
+    --status-cooling: #d9ae55;
+    --status-abandoned: #dd8f8f;
+    --card-bg: #211c19;
+    --shadow: rgba(0, 0, 0, 0.32);
+    --page-divider: rgba(177, 165, 155, 0.18);
+    --page-divider-strong: rgba(177, 165, 155, 0.22);
+    --page-divider-soft: rgba(177, 165, 155, 0.14);
+    --control-hover-bg: rgba(242, 236, 226, 0.08);
+    --page-chip-hover-bg: rgba(226, 154, 97, 0.1);
+    --dismiss-hover-bg: rgba(242, 236, 226, 0.08);
+    --toast-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    --update-btn-hover: #98c0a2;
+  }
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -363,7 +400,7 @@ header {
   padding: 8px 4px;
   border-radius: 0;
   border: none;
-  border-bottom: 1px solid rgba(154, 145, 138, 0.1);
+  border-bottom: 1px solid var(--page-divider);
   position: relative;
   display: flex;
   align-items: center;
@@ -438,7 +475,7 @@ header {
 
 .chip-action:hover {
   opacity: 1;
-  background: rgba(154, 145, 138, 0.1);
+  background: var(--control-hover-bg);
 }
 
 .chip-save:hover {
@@ -457,7 +494,7 @@ header {
 }
 
 .page-chip.clickable:hover {
-  background: rgba(200, 113, 58, 0.04);
+  background: var(--page-chip-hover-bg);
 }
 
 /* "+N more" overflow chip */
@@ -525,7 +562,7 @@ header {
 
 .action-btn.primary {
   background: var(--ink);
-  color: var(--paper);
+  color: var(--button-primary-text);
   border-color: var(--ink);
 }
 
@@ -577,7 +614,7 @@ header {
   font-weight: 500;
   padding: 12px 24px;
   border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  box-shadow: var(--toast-shadow);
   z-index: 100;
   opacity: 0;
   transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
@@ -836,7 +873,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   font-family: 'DM Sans', sans-serif;
   font-size: 12px;
   font-weight: 500;
-  color: #fff;
+  color: var(--button-primary-text);
   background: var(--accent-sage);
   border: none;
   border-radius: 5px;
@@ -848,7 +885,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .update-banner-btn:hover {
-  background: #4a6952; /* slightly darker sage */
+  background: var(--update-btn-hover);
 }
 
 .update-banner-btn:disabled {
@@ -874,7 +911,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .update-banner-dismiss:hover {
-  background: rgba(26, 22, 19, 0.06);
+  background: var(--dismiss-hover-bg);
   color: var(--ink);
 }
 
@@ -928,7 +965,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   align-items: flex-start;
   gap: 10px;
   padding: 10px 0;
-  border-bottom: 1px solid rgba(154, 145, 138, 0.12);
+  border-bottom: 1px solid var(--page-divider-strong);
   animation: fadeUp 0.3s ease both;
 }
 
@@ -968,7 +1005,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   left: 5px;
   width: 4px;
   height: 8px;
-  border: solid white;
+  border: solid var(--checkbox-checkmark);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
@@ -1127,7 +1164,12 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   align-items: center;
   gap: 8px;
   padding: 6px 0;
-  border-bottom: 1px solid rgba(154, 145, 138, 0.08);
+  border-bottom: 1px solid var(--page-divider-soft);
+}
+
+.open-tabs-badge.duplicate-badge {
+  color: var(--accent-amber);
+  background: rgba(200, 113, 58, 0.08);
 }
 
 .archive-item:last-child {
